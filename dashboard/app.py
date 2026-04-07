@@ -135,29 +135,6 @@ the **Statistical API** and stored as Parquet files.
 Rasters for map display are fetched on demand and cached to disk.
 """)
 
-with m2:
-    st.markdown("""
-**NDVI interpretation**
-
-| Range | Meaning |
-|-------|---------|
-| < 0.0 | Water / urban surface |
-| 0.0 – 0.2 | Bare soil / impervious |
-| 0.2 – 0.4 | Sparse vegetation |
-| 0.4 – 0.6 | Moderate vegetation |
-| > 0.6 | Dense vegetation |
-
-**LST interpretation**
-
-| Range | Meaning |
-|-------|---------|
-| < 5 °C | Very cold |
-| 5 – 12 °C | Cold |
-| 12 – 20 °C | Moderate |
-| 20 – 28 °C | Warm |
-| > 28 °C | Very hot / heat stress |
-""")
-
 st.divider()
 
 # ---------------------------------------------------------------------------
