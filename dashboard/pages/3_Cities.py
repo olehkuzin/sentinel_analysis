@@ -96,12 +96,10 @@ if isinstance(city_ts_data, str):
 ts_filtered = aggregation.filter_by_year_range(city_ts_data, YEAR, YEAR)
 value_col = "ndvi_mean" if variable == "NDVI" else "lst_mean"
 
-# Latest stats per city for comparison chart
-latest_year = ts_filtered["year"].max()
-latest_month = ts_filtered[ts_filtered["year"] == latest_year]["month"].max()
+# Stats per city for selected month
 city_latest = (
     ts_filtered[
-        (ts_filtered["year"] == latest_year) & (ts_filtered["month"] == latest_month)
+        (ts_filtered["year"] == YEAR) & (ts_filtered["month"] == map_month)
     ][["entity", value_col]]
     .copy()
 )
@@ -151,7 +149,8 @@ with col_info:
     st.markdown(f"**Region:** {city_info.get('region','—')}")
     st.markdown(f"**Population:** {city_info.get('population',0):,}")
 
-    latest_row = detail_ts.dropna(subset=[value_col]).sort_values("date").iloc[-1:] if not detail_ts.empty else pd.DataFrame()
+    month_row = detail_ts[detail_ts["month"] == map_month].iloc[-1:] if not detail_ts.empty else pd.DataFrame()
+    latest_row = month_row if not month_row.empty else pd.DataFrame()
     if not latest_row.empty:
         row = latest_row.iloc[0]
         unit = "" if variable == "NDVI" else " °C"
@@ -168,20 +167,14 @@ with col_info:
             st.info(lst_mod.interpret_value(row[value_col]))
 
 with col_ts:
-    tab1, tab2 = st.tabs(["Monthly", "Yearly"])
-    with tab1:
-        fig = visualization.plot_timeseries(
-            detail_ts, variable=variable.lower(), show_range=True,
-            title=f"{detail_city} — Monthly {variable}",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    with tab2:
-        yearly = aggregation.aggregate_yearly(detail_ts)
-        fig2 = visualization.plot_yearly_bar(yearly, variable.lower(), detail_city)
-        st.plotly_chart(fig2, use_container_width=True)
+    fig = visualization.plot_timeseries(
+        detail_ts, variable=variable.lower(),
+        title=f"{detail_city} — Monthly {variable}",
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 with col_compare:
-    st.markdown("**City comparison (latest month)**")
+    st.markdown(f"**City comparison — {MONTH_NAMES[map_month-1]} {YEAR}**")
     if not city_latest.empty:
         sorted_df = city_latest.sort_values(value_col, ascending=True).rename(
             columns={value_col: variable}
@@ -193,7 +186,7 @@ with col_compare:
             y=sorted_df["entity"],
             orientation="h",
             marker_color=[
-                "#000000" if e == detail_city else color
+                "#C8F7C8" if e == detail_city else color
                 for e in sorted_df["entity"]
             ],
         ))
@@ -216,7 +209,7 @@ if variable == "LST":
         country_filtered = aggregation.filter_by_year_range(country_ts_data, YEAR, YEAR)
         cz_latest = aggregation.filter_by_entity(country_filtered, "Czech Republic")
         cz_latest_row = cz_latest[
-            (cz_latest["year"] == latest_year) & (cz_latest["month"] == latest_month)
+            (cz_latest["year"] == YEAR) & (cz_latest["month"] == map_month)
         ]
         country_lst_mean = float(cz_latest_row["lst_mean"].iloc[0]) if not cz_latest_row.empty else np.nan
 
@@ -224,7 +217,7 @@ if variable == "LST":
             uhi_fig = visualization.plot_uhi_bar(
                 city_latest.rename(columns={value_col: "lst_mean"}),
                 country_lst_mean,
-                title=f"UHI — {MONTH_NAMES[latest_month-1]} {latest_year}",
+                title=f"UHI — {MONTH_NAMES[map_month-1]} {YEAR}",
             )
             st.plotly_chart(uhi_fig, use_container_width=True)
             st.caption(f"Country reference LST: {country_lst_mean:.1f} °C")

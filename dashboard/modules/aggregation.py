@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 # Parquet files are written by scripts/fetch_all_timeseries.py
-_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "timeseries"
+_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "timeseries"
 
 _MISSING_MSG = (
     "Parquet file not found: {path}\n"

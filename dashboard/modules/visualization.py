@@ -11,13 +11,10 @@ import math
 import folium
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.path as mpath
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from branca.colormap import LinearColormap
-from shapely.geometry import shape, MultiPolygon
-from shapely.ops import unary_union
 
 from . import ndvi as ndvi_mod
 from . import lst as lst_mod
@@ -30,32 +27,20 @@ matplotlib.use("Agg")  # non-interactive backend
 # ---------------------------------------------------------------------------
 
 def _mask_raster_to_geojson(arr: np.ndarray, bbox: list[float], geojson: dict) -> np.ndarray:
-    """Set pixels outside the GeoJSON boundary to NaN so raster follows CZ shape."""
+    """Set pixels outside the GeoJSON boundary to NaN so raster follows CZ shape.
+    Uses rasterio.features.geometry_mask for speed (~50ms vs ~3.5s)."""
+    from rasterio.transform import from_bounds
+    from rasterio.features import geometry_mask
+
     h, w = arr.shape
-    # Build a single merged polygon from all features
-    polys = []
-    for feat in geojson.get("features", []):
-        polys.append(shape(feat["geometry"]))
-    merged = unary_union(polys)
-    if merged.geom_type == "Polygon":
-        merged = MultiPolygon([merged])
+    transform = from_bounds(bbox[0], bbox[1], bbox[2], bbox[3], w, h)
 
-    # Create lon/lat grid for each pixel center
-    lon_min, lat_min, lon_max, lat_max = bbox
-    lons = np.linspace(lon_min, lon_max, w)
-    lats = np.linspace(lat_max, lat_min, h)  # top-down
-    lon_grid, lat_grid = np.meshgrid(lons, lats)
-    points = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
-
-    # Build matplotlib path from polygon exterior(s) for fast containment test
-    mask = np.zeros(len(points), dtype=bool)
-    for poly in merged.geoms:
-        verts = np.array(poly.exterior.coords)
-        path = mpath.Path(verts)
-        mask |= path.contains_points(points)
+    geometries = [feat["geometry"] for feat in geojson.get("features", [])]
+    # geometry_mask returns True for pixels OUTSIDE the shapes
+    mask = geometry_mask(geometries, out_shape=(h, w), transform=transform, invert=False)
 
     result = arr.copy()
-    result[~mask.reshape(h, w)] = np.nan
+    result[mask] = np.nan
     return result
 
 
@@ -385,42 +370,25 @@ def build_city_marker_map(
 def plot_timeseries(
     df: pd.DataFrame,
     variable: str,
-    show_range: bool = True,
     title: str = "",
 ) -> go.Figure:
-    """
-    Line chart with optional shaded min/max band.
-    variable: "ndvi" | "lst"
-    """
+    """Line chart of monthly mean values."""
     if df.empty:
         return go.Figure().update_layout(title="No data available")
 
     mean_col = f"{variable}_mean"
-    min_col = f"{variable}_min"
-    max_col = f"{variable}_max"
     unit = "" if variable == "ndvi" else " °C"
     color = "#2ECC71" if variable == "ndvi" else "#E74C3C"
 
     fig = go.Figure()
 
-    if show_range and min_col in df.columns and max_col in df.columns:
-        fig.add_trace(go.Scatter(
-            x=pd.concat([df["date"], df["date"].iloc[::-1]]),
-            y=pd.concat([df[max_col], df[min_col].iloc[::-1]]),
-            fill="toself",
-            fillcolor=color.replace(")", ",0.15)").replace("rgb", "rgba"),
-            line=dict(color="rgba(255,255,255,0)"),
-            showlegend=False,
-            name="Range",
-        ))
-
     fig.add_trace(go.Scatter(
         x=df["date"],
         y=df[mean_col],
         mode="lines+markers",
-        line=dict(color=color, width=2),
-        marker=dict(size=5),
-        name=variable.upper() + unit,
+        line=dict(color=color, width=2.5),
+        marker=dict(size=7),
+        name="Mean",
     ))
 
     # Vertical year boundary lines

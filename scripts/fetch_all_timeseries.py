@@ -29,7 +29,7 @@ load_dotenv()
 from dashboard.modules import geography
 from dashboard.modules import statistics_api
 
-OUTPUT_DIR = Path("data/timeseries")
+OUTPUT_DIR = Path("dashboard/data/timeseries")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 START = "2025-01-01"

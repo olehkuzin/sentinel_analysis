@@ -128,27 +128,9 @@ with stats_col:
 st.divider()
 st.subheader("Time Series — 2025")
 
-tab1, tab2, tab3 = st.tabs(["Monthly", "Yearly", "NDVI vs LST"])
-
-with tab1:
-    fig = visualization.plot_timeseries(
-        cz_ts,
-        variable=variable.lower(),
-        show_range=True,
-        title=f"Czech Republic — Monthly {variable}",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-with tab2:
-    yearly = aggregation.aggregate_yearly(cz_ts)
-    fig2 = visualization.plot_yearly_bar(
-        yearly, variable.lower(), "Czech Republic",
-        title=f"Czech Republic — Yearly {variable}",
-    )
-    st.plotly_chart(fig2, use_container_width=True)
-
-with tab3:
-    fig3 = visualization.plot_ndvi_lst_scatter(
-        cz_ts, title="Czech Republic — NDVI vs LST by month",
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+fig = visualization.plot_timeseries(
+    cz_ts,
+    variable=variable.lower(),
+    title=f"Czech Republic — Monthly {variable}",
+)
+st.plotly_chart(fig, use_container_width=True)

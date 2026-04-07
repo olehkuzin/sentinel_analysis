@@ -121,8 +121,12 @@ region_ts = aggregation.filter_by_entity(ts_filtered, selected_region)
 detail_left, detail_right = st.columns([1, 2])
 
 with detail_left:
-    st.markdown("**Summary statistics (2025)**")
-    latest_row = region_ts.dropna(subset=[value_col]).sort_values("date").iloc[-1:] if not region_ts.empty else pd.DataFrame()
+    st.markdown(f"**Statistics — {MONTH_NAMES[map_month-1]} {YEAR}**")
+    month_row = region_ts[region_ts["month"] == map_month].iloc[-1:] if not region_ts.empty else pd.DataFrame()
+    if not month_row.empty:
+        latest_row = month_row
+    else:
+        latest_row = pd.DataFrame()
     if not latest_row.empty:
         row = latest_row.iloc[0]
         unit = "" if variable == "NDVI" else " °C"
@@ -137,22 +141,8 @@ with detail_left:
         st.info("No data for this region/period.")
 
 with detail_right:
-    tab1, tab2, tab3 = st.tabs(["Monthly time series", "Yearly", "All regions heatmap"])
-    with tab1:
-        fig = visualization.plot_timeseries(
-            region_ts, variable=variable.lower(), show_range=True,
-            title=f"{selected_region} — Monthly {variable}",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    with tab2:
-        yearly = aggregation.aggregate_yearly(region_ts)
-        fig2 = visualization.plot_yearly_bar(
-            yearly, variable.lower(), selected_region,
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-    with tab3:
-        fig3 = visualization.plot_monthly_heatmap(
-            ts_filtered, variable=variable.lower(),
-            title=f"All regions — Monthly {variable} heatmap",
-        )
-        st.plotly_chart(fig3, use_container_width=True)
+    fig = visualization.plot_timeseries(
+        region_ts, variable=variable.lower(),
+        title=f"{selected_region} — Monthly {variable}",
+    )
+    st.plotly_chart(fig, use_container_width=True)
