@@ -22,4 +22,8 @@ dependencies = [
     "streamlit>=1.45",
     "streamlit-folium>=0.25",
     "pyarrow>=19.0",
+    "xarray>=2026.2.0",
+    "netcdf4>=1.7.4",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
 ]

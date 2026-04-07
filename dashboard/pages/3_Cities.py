@@ -66,7 +66,7 @@ def load_country_ts():
 
 cities_geojson = geography.load_cities_geojson()
 
-@st.cache_data(persist="disk")
+@st.cache_data
 def load_city_raster(city_name: str, year: int, month: int):
     """Fetch raster at 120m for the selected city area."""
     if cities_geojson:
@@ -198,7 +198,45 @@ with col_compare:
         st.plotly_chart(bar_fig, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Row 3: Urban Heat Island
+# Row 3: Vegetation cooling analysis
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader(f"Vegetation Cooling — {detail_city}")
+
+@st.cache_data
+def load_city_lst_l2(city_name: str, year: int, month: int):
+    from dashboard.modules.lst_l2 import fetch_lst_l2
+    bbox = geography.get_city_bbox(city_name, buffer_deg=0.15)
+    return fetch_lst_l2(bbox, (128, 96), year, month)
+
+with st.spinner("Loading real surface temperature (S3 LST Level-2)..."):
+    try:
+        lst_l2 = load_city_lst_l2(detail_city, YEAR, map_month)
+        ndvi_resized = preprocessing.resample_to_shape(city_ndvi, lst_l2.shape)
+
+        cool_left, cool_right = st.columns(2)
+        with cool_left:
+            scatter_fig = visualization.plot_pixel_scatter(
+                ndvi_resized, lst_l2,
+                title=f"NDVI vs Surface Temp — {detail_city}",
+            )
+            st.plotly_chart(scatter_fig, use_container_width=True)
+
+        with cool_right:
+            cooling = visualization.compute_vegetation_cooling(ndvi_resized, lst_l2)
+            c1, c2 = st.columns(2)
+            c1.metric("Vegetated (NDVI>0.4)", f"{cooling['vegetated_mean']:.1f} °C" if np.isfinite(cooling['vegetated_mean']) else "N/A")
+            c2.metric("Bare/urban (NDVI<0.2)", f"{cooling['bare_mean']:.1f} °C" if np.isfinite(cooling['bare_mean']) else "N/A")
+            if np.isfinite(cooling['cooling_effect']):
+                st.metric("Cooling effect", f"{cooling['cooling_effect']:.1f} °C")
+                st.caption(f"Vegetation is **{cooling['cooling_effect']:.1f}°C cooler** than bare surfaces")
+            st.metric("Correlation (r)", f"{cooling['correlation']:.2f}" if np.isfinite(cooling['correlation']) else "N/A")
+            st.caption("Data: Sentinel-3 LST Level-2")
+    except Exception as e:
+        st.warning(f"LST Level-2 analysis unavailable: {e}")
+
+# ---------------------------------------------------------------------------
+# Row 4: Urban Heat Island
 # ---------------------------------------------------------------------------
 if variable == "LST":
     st.divider()

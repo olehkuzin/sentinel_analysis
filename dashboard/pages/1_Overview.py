@@ -54,7 +54,7 @@ def load_ts():
     except FileNotFoundError as e:
         return str(e)
 
-@st.cache_data(persist="disk")
+@st.cache_data
 def load_raster(year: int, month: int):
     bbox = geography.CZ_BBOX
     size = geography.CZ_RASTER_SIZE[::-1]  # sentinelhub wants (W, H)
@@ -64,6 +64,14 @@ def load_raster(year: int, month: int):
     lst_arr = preprocessing.mask_invalid(lst_arr, -20.0, 60.0)
     ndvi_arr, lst_arr = preprocessing.align_resolutions(ndvi_arr, lst_arr)
     return ndvi_arr, lst_arr
+
+@st.cache_data
+def load_lst_l2(year: int, month: int):
+    """Real LST from S3 Level-2 product for analysis (not for map display)."""
+    from dashboard.modules.lst_l2 import fetch_lst_l2
+    bbox = geography.CZ_BBOX
+    size = (256, 128)  # lower res for speed — analysis doesn't need full resolution
+    return fetch_lst_l2(bbox, size, year, month), bbox
 
 ts_data = load_ts()
 
@@ -123,7 +131,42 @@ with stats_col:
         st.info("Load a raster using the sidebar controls.")
 
 # ---------------------------------------------------------------------------
-# Row 2: Time series
+# Row 2: Vegetation cooling analysis
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("Vegetation Cooling Analysis")
+
+with st.spinner("Loading real surface temperature (S3 LST Level-2)..."):
+    try:
+        lst_l2, _ = load_lst_l2(YEAR, map_month)
+        # Resample NDVI to match LST L2 resolution
+        ndvi_resized = preprocessing.resample_to_shape(ndvi_arr, lst_l2.shape)
+
+        cool_left, cool_right = st.columns(2)
+        with cool_left:
+            scatter_fig = visualization.plot_pixel_scatter(
+                ndvi_resized, lst_l2,
+                title=f"NDVI vs Surface Temp — {MONTH_NAMES[map_month-1]} {YEAR}",
+            )
+            st.plotly_chart(scatter_fig, use_container_width=True)
+
+        with cool_right:
+            cooling = visualization.compute_vegetation_cooling(ndvi_resized, lst_l2)
+            st.markdown("**Vegetation Cooling Index**")
+            c1, c2 = st.columns(2)
+            c1.metric("Vegetated areas (NDVI>0.4)", f"{cooling['vegetated_mean']:.1f} °C" if np.isfinite(cooling['vegetated_mean']) else "N/A")
+            c2.metric("Bare/urban areas (NDVI<0.2)", f"{cooling['bare_mean']:.1f} °C" if np.isfinite(cooling['bare_mean']) else "N/A")
+
+            if np.isfinite(cooling['cooling_effect']):
+                st.metric("Cooling effect of vegetation", f"{cooling['cooling_effect']:.1f} °C")
+                st.caption(f"Vegetation is **{cooling['cooling_effect']:.1f}°C cooler** than bare/urban surfaces")
+            st.metric("NDVI–Temperature correlation", f"r = {cooling['correlation']:.2f}" if np.isfinite(cooling['correlation']) else "N/A")
+            st.caption(f"Based on {cooling['n_vegetated']:,} vegetated and {cooling['n_bare']:,} bare pixels | Data: Sentinel-3 LST Level-2")
+    except Exception as e:
+        st.warning(f"LST Level-2 analysis unavailable: {e}")
+
+# ---------------------------------------------------------------------------
+# Row 3: Time series
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Time Series — 2025")

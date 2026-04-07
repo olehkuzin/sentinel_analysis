@@ -145,7 +145,7 @@ def fetch_lst_raster(
     year: int,
     month: int,
 ) -> np.ndarray:
-    """Fetch LST raster, loading from disk cache if available."""
+    """Fetch LST (brightness temp, °C) via Sentinel Hub Process API."""
     key = _cache_key("lst", bbox, size, year, month)
     cached = _load_cached(key)
     if cached is not None:

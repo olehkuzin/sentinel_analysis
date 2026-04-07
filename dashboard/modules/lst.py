@@ -14,8 +14,6 @@ LST_COLORSCALE = [
 ]
 
 LST_CMAP = "RdYlBu_r"
-# SLSTR brightness temperature (not true surface temp).
-# Relative patterns (urban heat islands, vegetation cooling) are valid.
 LST_VMIN = 0.0
 LST_VMAX = 16.0
 LST_LABEL = "Brightness Temp (°C)"

@@ -586,3 +586,101 @@ def plot_uhi_bar(
         margin=dict(l=120, r=60, t=40, b=50),
     )
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Analysis: NDVI vs LST pixel scatter, vegetation cooling, UHI
+# ---------------------------------------------------------------------------
+
+def plot_pixel_scatter(
+    ndvi_arr: np.ndarray,
+    lst_arr: np.ndarray,
+    title: str = "NDVI vs LST — Pixel-level",
+    max_points: int = 5000,
+) -> go.Figure:
+    """Scatter plot of NDVI vs LST at pixel level with trendline.
+    Shows that higher NDVI (vegetation) correlates with lower temperature."""
+    # Flatten and pair valid pixels
+    ndvi_flat = ndvi_arr.ravel()
+    lst_flat = lst_arr.ravel()
+    valid = np.isfinite(ndvi_flat) & np.isfinite(lst_flat)
+    ndvi_v = ndvi_flat[valid]
+    lst_v = lst_flat[valid]
+
+    if len(ndvi_v) == 0:
+        return go.Figure().update_layout(title="No valid pixel pairs")
+
+    # Subsample for performance
+    if len(ndvi_v) > max_points:
+        idx = np.random.default_rng(42).choice(len(ndvi_v), max_points, replace=False)
+        ndvi_v = ndvi_v[idx]
+        lst_v = lst_v[idx]
+
+    # Linear trendline
+    mask = np.isfinite(ndvi_v) & np.isfinite(lst_v)
+    if np.sum(mask) > 10:
+        coeffs = np.polyfit(ndvi_v[mask], lst_v[mask], 1)
+        trend_x = np.linspace(np.min(ndvi_v), np.max(ndvi_v), 100)
+        trend_y = np.polyval(coeffs, trend_x)
+        r = np.corrcoef(ndvi_v[mask], lst_v[mask])[0, 1]
+    else:
+        coeffs, trend_x, trend_y, r = None, None, None, 0
+
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(
+        x=ndvi_v, y=lst_v,
+        mode="markers",
+        marker=dict(size=3, color=lst_v, colorscale="RdYlBu_r", opacity=0.5),
+        name="Pixels",
+        hovertemplate="NDVI: %{x:.2f}<br>Temp: %{y:.1f}°C<extra></extra>",
+    ))
+
+    if trend_x is not None:
+        fig.add_trace(go.Scatter(
+            x=trend_x, y=trend_y,
+            mode="lines",
+            line=dict(color="black", width=2, dash="dash"),
+            name=f"Trend (r={r:.2f}, slope={coeffs[0]:.1f}°C/NDVI)",
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="NDVI",
+        yaxis_title="Surface Temp (°C)",
+        template="plotly_white",
+        margin=dict(l=50, r=20, t=40, b=50),
+        height=400,
+    )
+    return fig
+
+
+def compute_vegetation_cooling(ndvi_arr: np.ndarray, lst_arr: np.ndarray) -> dict:
+    """Compute how much cooler vegetated areas are vs bare/urban areas.
+
+    Returns dict with:
+        vegetated_mean: mean LST where NDVI > 0.4
+        bare_mean: mean LST where NDVI < 0.2
+        cooling_effect: bare_mean - vegetated_mean (positive = vegetation cools)
+        correlation: Pearson r between NDVI and LST
+    """
+    valid = np.isfinite(ndvi_arr) & np.isfinite(lst_arr)
+    ndvi_v = ndvi_arr[valid]
+    lst_v = lst_arr[valid]
+
+    vegetated = lst_v[ndvi_v > 0.4]
+    bare = lst_v[ndvi_v < 0.2]
+
+    veg_mean = float(np.mean(vegetated)) if len(vegetated) > 0 else np.nan
+    bare_mean = float(np.mean(bare)) if len(bare) > 0 else np.nan
+    cooling = bare_mean - veg_mean if np.isfinite(bare_mean) and np.isfinite(veg_mean) else np.nan
+
+    r = float(np.corrcoef(ndvi_v, lst_v)[0, 1]) if len(ndvi_v) > 10 else np.nan
+
+    return {
+        "vegetated_mean": veg_mean,
+        "bare_mean": bare_mean,
+        "cooling_effect": cooling,
+        "correlation": r,
+        "n_vegetated": len(vegetated),
+        "n_bare": len(bare),
+    }
