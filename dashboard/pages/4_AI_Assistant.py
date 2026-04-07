@@ -43,6 +43,7 @@ SYSTEM_PROMPT = (
     "Copernicus satellite data. When asked about NDVI or LST for any region or "
     "city, always fetch the data first using your tools before answering. "
     "Be concise and insightful.\n\n"
+    "Available data: year 2025 only.\n"
     f"Available regions: {list(geography.REGIONS.keys())}\n"
     f"Available cities: {list(geography.CITIES.keys())}"
 )
@@ -67,7 +68,7 @@ TOOLS = [
                         "type": "string",
                         "description": "Name of a Czech NUTS-3 region or major city.",
                     },
-                    "year": {"type": "integer", "description": "Year (2020–2024)."},
+                    "year": {"type": "integer", "description": "Year (only 2025 available)."},
                     "month": {"type": "integer", "description": "Month number (1–12)."},
                 },
                 "required": ["region_or_city", "year", "month"],
@@ -90,7 +91,7 @@ TOOLS = [
                         "type": "string",
                         "description": "Name of a Czech NUTS-3 region or major city.",
                     },
-                    "year": {"type": "integer", "description": "Year (2020–2024)."},
+                    "year": {"type": "integer", "description": "Year (only 2025 available)."},
                     "month": {"type": "integer", "description": "Month number (1–12)."},
                 },
                 "required": ["region_or_city", "year", "month"],
@@ -116,7 +117,7 @@ TOOLS = [
                         "type": "string",
                         "description": "Name of the second region or city.",
                     },
-                    "year": {"type": "integer", "description": "Year (2020–2024)."},
+                    "year": {"type": "integer", "description": "Year (only 2025 available)."},
                     "month": {"type": "integer", "description": "Month number (1–12)."},
                 },
                 "required": ["region1", "region2", "year", "month"],

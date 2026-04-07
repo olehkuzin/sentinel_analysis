@@ -38,7 +38,7 @@ st.title("Czech Republic Vegetation & Urban Heat")
 st.markdown(
     "Satellite-based analysis using **Sentinel-2 L2A** (NDVI) "
     "and **Sentinel-3 SLSTR** (Land Surface Temperature) "
-    "for the period **2020–2025**."
+    "for the period **2025**."
 )
 
 if country_df is None:
@@ -73,7 +73,7 @@ else:
     with col3:
         st.metric(
             label="Data Coverage",
-            value=f"2020–2025",
+            value="2025",
             help="Monthly aggregated statistics via SentinelHub Statistical API",
         )
 
@@ -84,7 +84,7 @@ st.markdown("""
 
 | Page | Content |
 |------|---------|
-| **Czech Republic Overview** | National NDVI/LST map, summary statistics, time series 2020–2025 |
+| **Czech Republic Overview** | National NDVI/LST map, summary statistics, time series 2025 |
 | **Regions** | Choropleth across 14 NUTS-3 regions, regional drill-down |
 | **Cities** | City-level markers, Urban Heat Island comparison |
 
