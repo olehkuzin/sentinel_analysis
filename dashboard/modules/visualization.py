@@ -144,19 +144,23 @@ def build_country_raster_map(
         colorbar.add_to(fmap)
 
     elif layer == "lst" and lst_arr is not None:
-        png_b64 = _array_to_png_b64(lst_arr, lst_mod.LST_CMAP, lst_mod.LST_VMIN, lst_mod.LST_VMAX)
+        # Convert to anomaly (deviation from area mean)
+        area_mean = float(np.nanmean(lst_arr))
+        anomaly = lst_arr - area_mean
+        vmin, vmax = -4.0, 4.0  # ±4°C range
+        png_b64 = _array_to_png_b64(anomaly, "RdBu_r", vmin, vmax)
         folium.raster_layers.ImageOverlay(
             image=f"data:image/png;base64,{png_b64}",
             bounds=bounds,
             opacity=0.75,
             interactive=False,
-            name=lst_mod.LST_LABEL,
+            name="Temperature anomaly",
         ).add_to(fmap)
         colorbar = LinearColormap(
-            colors=["#313695", "#74ADD1", "#FEE090", "#F46D43", "#A50026"],
-            vmin=lst_mod.LST_VMIN,
-            vmax=lst_mod.LST_VMAX,
-            caption=lst_mod.LST_LABEL,
+            colors=["#313695", "#74ADD1", "#FFFFBF", "#F46D43", "#A50026"],
+            vmin=vmin,
+            vmax=vmax,
+            caption="Temperature anomaly (°C vs area mean)",
         )
         colorbar.add_to(fmap)
 

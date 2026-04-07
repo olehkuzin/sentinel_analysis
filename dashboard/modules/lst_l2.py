@@ -17,7 +17,7 @@ import xarray as xr
 from dotenv import load_dotenv
 from scipy.interpolate import griddata
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 _CACHE_DIR = Path(__file__).resolve().parents[1] / "data" / "rasters"
 _TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
@@ -25,15 +25,30 @@ _CATALOG_URL = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
 _ZIPPER_URL = "https://zipper.dataspace.copernicus.eu/odata/v1/Products"
 
 
+import threading
+import time as _time
+
+_token_cache = {"token": None, "expires": 0}
+_token_lock = threading.Lock()
+
+
 def _get_token() -> str:
-    resp = requests.post(_TOKEN_URL, data={
-        "grant_type": "password",
-        "client_id": "cdse-public",
-        "username": os.environ["CDSE_USERNAME"],
-        "password": os.environ["CDSE_PASSWORD"],
-    }, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+    """Get CDSE access token, cached and thread-safe."""
+    with _token_lock:
+        if _token_cache["token"] and _time.time() < _token_cache["expires"]:
+            return _token_cache["token"]
+        resp = requests.post(_TOKEN_URL, data={
+            "grant_type": "password",
+            "client_id": "cdse-public",
+            "username": os.environ["CDSE_USERNAME"],
+            "password": os.environ["CDSE_PASSWORD"],
+        }, timeout=30)
+        resp.raise_for_status()
+        token = resp.json()["access_token"]
+        # Cache for 8 minutes (tokens last 10 min)
+        _token_cache["token"] = token
+        _token_cache["expires"] = _time.time() + 480
+        return token
 
 
 def _search_products(bbox: list[float], year: int, month: int, max_results: int = 10) -> list[dict]:

@@ -341,9 +341,9 @@ if "display_messages" not in st.session_state:
 if not st.session_state.display_messages:
     st.info(
         "Ask anything — Claude will fetch satellite data automatically. Try:\n"
-        "- *\"What is the NDVI in Praha for July 2023?\"*\n"
-        "- *\"Compare vegetation in Brno and Ostrava in summer 2022\"*\n"
-        "- *\"Which region had the highest LST in August 2021?\"*\n"
+        "- *\"What is the NDVI in Praha for July 2025?\"*\n"
+        "- *\"Compare vegetation in Brno and Ostrava in summer 2025\"*\n"
+        "- *\"Which region had the highest LST in August 2025?\"*\n"
         "- *\"What are your recommendations for Praha's urban heat?\"*"
     )
 

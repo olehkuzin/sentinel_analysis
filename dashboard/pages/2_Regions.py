@@ -135,8 +135,6 @@ with detail_left:
         st.metric("Max",  f"{row[f'{variable.lower()}_max']:.3f}{unit}" if f"{variable.lower()}_max" in row else "N/A")
         if variable == "NDVI":
             st.info(ndvi_mod.interpret_value(row[value_col]))
-        else:
-            st.info(lst_mod.interpret_value(row[value_col]))
     else:
         st.info("No data for this region/period.")
 
@@ -181,6 +179,5 @@ with st.spinner("Loading real surface temperature (S3 LST Level-2)..."):
                 st.metric("Cooling effect", f"{cooling['cooling_effect']:.1f} °C")
                 st.caption(f"Vegetation is **{cooling['cooling_effect']:.1f}°C cooler** than bare surfaces")
             st.metric("Correlation (r)", f"{cooling['correlation']:.2f}" if np.isfinite(cooling['correlation']) else "N/A")
-            st.caption("Data: Sentinel-3 LST Level-2")
     except Exception as e:
         st.warning(f"LST Level-2 analysis unavailable: {e}")

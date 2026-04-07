@@ -106,27 +106,27 @@ with map_col:
 with stats_col:
     st.subheader("Statistics (selected map period)")
     try:
-        arr = ndvi_arr if variable == "NDVI" else lst_arr
-        stats = ndvi_mod.compute_stats(arr) if variable == "NDVI" else lst_mod.compute_stats(arr)
-        unit = "" if variable == "NDVI" else " °C"
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Mean", f"{stats['mean']:.3f}{unit}" if not np.isnan(stats['mean']) else "N/A")
-        c2.metric("Min",  f"{stats['min']:.3f}{unit}"  if not np.isnan(stats['min'])  else "N/A")
-        c3.metric("Max",  f"{stats['max']:.3f}{unit}"  if not np.isnan(stats['max'])  else "N/A")
-
-        st.plotly_chart(
-            visualization.plot_stats_bar(stats, "Czech Republic", variable.lower()),
-            use_container_width=True,
-        )
-        st.caption(
-            f"Valid pixels: {stats['valid_pixels']:,} / "
-            f"Coverage: {stats['coverage_pct']:.1f}%"
-        )
         if variable == "NDVI":
+            stats = ndvi_mod.compute_stats(ndvi_arr)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Mean", f"{stats['mean']:.3f}" if not np.isnan(stats['mean']) else "N/A")
+            c2.metric("Min",  f"{stats['min']:.3f}"  if not np.isnan(stats['min'])  else "N/A")
+            c3.metric("Max",  f"{stats['max']:.3f}"  if not np.isnan(stats['max'])  else "N/A")
+            st.plotly_chart(
+                visualization.plot_stats_bar(stats, "Czech Republic", "ndvi"),
+                use_container_width=True,
+            )
+            st.caption(f"Valid pixels: {stats['valid_pixels']:,} / Coverage: {stats['coverage_pct']:.1f}%")
             st.info(f"Vegetation class: {ndvi_mod.interpret_value(stats['mean'])}")
         else:
-            st.info(f"Temperature class: {lst_mod.interpret_value(stats['mean'])}")
+            # LST anomaly stats
+            area_mean = float(np.nanmean(lst_arr))
+            anomaly = lst_arr - area_mean
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Coldest anomaly", f"{np.nanmin(anomaly):.1f} °C")
+            c2.metric("Warmest anomaly", f"{np.nanmax(anomaly):.1f} °C")
+            c3.metric("Spread (std)", f"±{np.nanstd(anomaly):.1f} °C")
+            st.caption("Values show deviation from area mean — red = warmer, blue = cooler than average")
     except NameError:
         st.info("Load a raster using the sidebar controls.")
 
@@ -161,7 +161,7 @@ with st.spinner("Loading real surface temperature (S3 LST Level-2)..."):
                 st.metric("Cooling effect of vegetation", f"{cooling['cooling_effect']:.1f} °C")
                 st.caption(f"Vegetation is **{cooling['cooling_effect']:.1f}°C cooler** than bare/urban surfaces")
             st.metric("NDVI–Temperature correlation", f"r = {cooling['correlation']:.2f}" if np.isfinite(cooling['correlation']) else "N/A")
-            st.caption(f"Based on {cooling['n_vegetated']:,} vegetated and {cooling['n_bare']:,} bare pixels | Data: Sentinel-3 LST Level-2")
+            st.caption(f"Based on {cooling['n_vegetated']:,} vegetated and {cooling['n_bare']:,} bare pixels")
     except Exception as e:
         st.warning(f"LST Level-2 analysis unavailable: {e}")
 
