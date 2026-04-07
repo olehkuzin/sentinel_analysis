@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 import streamlit as st
-from streamlit_folium import st_folium
+from streamlit_folium import folium_static
 
 from dashboard.modules import (
     aggregation,
@@ -30,8 +30,6 @@ st.title("Czech Republic Overview")
 # ---------------------------------------------------------------------------
 st.sidebar.header("Controls")
 variable = st.sidebar.radio("Variable", ["NDVI", "LST"], key="overview_var")
-year_range = st.sidebar.slider("Year range", 2020, 2025, (2020, 2025), key="overview_yr")
-map_year = st.sidebar.selectbox("Map year", list(range(2025, 2019, -1)), key="overview_map_yr")
 map_month = st.sidebar.selectbox(
     "Map month",
     options=list(range(1, 13)),
@@ -42,6 +40,9 @@ map_month = st.sidebar.selectbox(
     index=6,
     key="overview_map_mo",
 )
+
+YEAR = 2025
+MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -70,8 +71,10 @@ if isinstance(ts_data, str):
     st.error(ts_data)
     st.stop()
 
-ts_filtered = aggregation.filter_by_year_range(ts_data, year_range[0], year_range[1])
+ts_filtered = aggregation.filter_by_year_range(ts_data, YEAR, YEAR)
 cz_ts = aggregation.filter_by_entity(ts_filtered, "Czech Republic")
+
+geojson = geography.load_regions_geojson()
 
 # ---------------------------------------------------------------------------
 # Row 1: Map + Statistics
@@ -79,14 +82,16 @@ cz_ts = aggregation.filter_by_entity(ts_filtered, "Czech Republic")
 map_col, stats_col = st.columns([3, 2])
 
 with map_col:
-    st.subheader(f"Map — {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][map_month-1]} {map_year}")
+    st.subheader(f"Map — {MONTH_NAMES[map_month-1]} {YEAR}")
     with st.spinner("Fetching raster from Sentinel Hub..."):
         try:
-            ndvi_arr, lst_arr = load_raster(map_year, map_month)
-            fmap = visualization.build_country_raster_map(
-                ndvi_arr, lst_arr, geography.CZ_BBOX, layer=variable.lower()
+            ndvi_arr, lst_arr = load_raster(YEAR, map_month)
+            fmap = visualization.build_raster_map_with_borders(
+                ndvi_arr, lst_arr, geography.CZ_BBOX,
+                layer=variable.lower(),
+                geojson=geojson,
             )
-            st_folium(fmap, width=700, height=460, returned_objects=[])
+            folium_static(fmap, width=700, height=460)
         except Exception as exc:
             st.error(f"Raster fetch failed: {exc}")
 
@@ -121,7 +126,7 @@ with stats_col:
 # Row 2: Time series
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Time Series (2020–2025)")
+st.subheader("Time Series — 2025")
 
 tab1, tab2, tab3 = st.tabs(["Monthly", "Yearly", "NDVI vs LST"])
 

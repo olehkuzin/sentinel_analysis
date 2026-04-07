@@ -1,6 +1,6 @@
 """
 Page 3 — Cities
-City-level marker map, statistics, time series, and Urban Heat Island comparison.
+Raster map for selected city, statistics, time series, and Urban Heat Island comparison.
 """
 import sys
 from pathlib import Path
@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import numpy as np
 import pandas as pd
 import streamlit as st
-from streamlit_folium import st_folium
+from streamlit_folium import folium_static
+from sentinelhub import BBox, CRS, bbox_to_dimensions
 
 from dashboard.modules import (
     aggregation,
@@ -31,15 +32,20 @@ st.title("Czech Cities — Vegetation & Heat")
 st.sidebar.header("Controls")
 variable = st.sidebar.radio("Variable", ["NDVI", "LST"], key="city_var")
 all_city_names = list(geography.CITIES.keys())
-selected_cities = st.sidebar.multiselect(
-    "Show cities", all_city_names, default=all_city_names, key="city_multi"
+detail_city = st.sidebar.selectbox("City", all_city_names, key="city_detail")
+map_month = st.sidebar.selectbox(
+    "Map month",
+    options=list(range(1, 13)),
+    format_func=lambda m: [
+        "Jan","Feb","Mar","Apr","May","Jun",
+        "Jul","Aug","Sep","Oct","Nov","Dec"
+    ][m-1],
+    index=6,
+    key="city_map_mo",
 )
-detail_city = st.sidebar.selectbox(
-    "Detail view",
-    selected_cities if selected_cities else all_city_names,
-    key="city_detail",
-)
-year_range = st.sidebar.slider("Year range", 2020, 2025, (2020, 2025), key="city_yr")
+
+YEAR = 2025
+MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -58,10 +64,21 @@ def load_country_ts():
     except FileNotFoundError as e:
         return None
 
+cities_geojson = geography.load_cities_geojson()
+
 @st.cache_data(persist="disk")
 def load_city_raster(city_name: str, year: int, month: int):
-    bbox = geography.get_city_bbox(city_name, buffer_deg=0.12)
-    size = (256, 256)
+    """Fetch raster at 120m for the selected city area."""
+    if cities_geojson:
+        bbox = geography.get_city_bbox_from_geojson(city_name, cities_geojson)
+    else:
+        bbox = geography.get_city_bbox(city_name, buffer_deg=0.15)
+    sh_bbox = BBox(bbox=bbox, crs=CRS.WGS84)
+    size = bbox_to_dimensions(sh_bbox, resolution=120)
+    max_dim = 2500
+    if size[0] > max_dim or size[1] > max_dim:
+        scale = max_dim / max(size)
+        size = (int(size[0] * scale), int(size[1] * scale))
     ndvi_arr = ingestion.fetch_ndvi_raster(bbox, size, year, month)
     lst_arr = ingestion.fetch_lst_raster(bbox, size, year, month)
     ndvi_arr = preprocessing.mask_invalid(ndvi_arr, -1.0, 1.0)
@@ -76,35 +93,48 @@ if isinstance(city_ts_data, str):
     st.error(city_ts_data)
     st.stop()
 
-ts_filtered = aggregation.filter_by_year_range(city_ts_data, year_range[0], year_range[1])
-cities_subset = {k: v for k, v in geography.CITIES.items() if k in (selected_cities or all_city_names)}
-
-# Latest stats per city → marker colouring
+ts_filtered = aggregation.filter_by_year_range(city_ts_data, YEAR, YEAR)
 value_col = "ndvi_mean" if variable == "NDVI" else "lst_mean"
+
+# Latest stats per city for comparison chart
 latest_year = ts_filtered["year"].max()
 latest_month = ts_filtered[ts_filtered["year"] == latest_year]["month"].max()
 city_latest = (
     ts_filtered[
         (ts_filtered["year"] == latest_year) & (ts_filtered["month"] == latest_month)
-        & ts_filtered["entity"].isin(list(cities_subset.keys()))
     ][["entity", value_col]]
     .copy()
 )
 
 # ---------------------------------------------------------------------------
-# Row 1: City marker map
+# Row 1: Raster map for selected city
 # ---------------------------------------------------------------------------
-st.subheader(
-    f"City Map — {variable} "
-    f"({['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][latest_month-1]} "
-    f"{latest_year})"
-)
-fmap = visualization.build_city_marker_map(
-    cities_subset, city_latest, variable.lower(), selected_city=detail_city
-)
-st_folium(fmap, width=900, height=480, returned_objects=[])
+st.subheader(f"{variable} — {detail_city} — {MONTH_NAMES[map_month-1]} {YEAR}")
+with st.spinner(f"Fetching raster for {detail_city}..."):
+    try:
+        city_ndvi, city_lst, city_bbox = load_city_raster(detail_city, YEAR, map_month)
+        if cities_geojson:
+            # Clip to actual city boundary
+            fmap = visualization.build_raster_map_with_borders(
+                city_ndvi, city_lst, city_bbox,
+                layer=variable.lower(),
+                geojson=cities_geojson,
+                selected_region=detail_city,
+                mask_region=detail_city,
+            )
+        else:
+            # Fallback: circular clip
+            city_info_map = geography.CITIES[detail_city]
+            center = (city_info_map["lon"], city_info_map["lat"])
+            fmap = visualization.build_city_raster_map(
+                city_ndvi, city_lst, city_bbox, layer=variable.lower(),
+                city_center=center,
+            )
+        folium_static(fmap, width=900, height=480)
+    except Exception as exc:
+        st.error(f"Raster fetch failed: {exc}")
 
-st.caption("Circle size ∝ city population. Color reflects the selected variable value.")
+st.caption(f"Satellite raster for {detail_city} area at 120m resolution.")
 
 # ---------------------------------------------------------------------------
 # Row 2: Detail view for selected city
@@ -183,7 +213,7 @@ if variable == "LST":
     st.markdown("Difference between city LST and Czech Republic mean LST for the same month.")
 
     if country_ts_data is not None and not isinstance(country_ts_data, str):
-        country_filtered = aggregation.filter_by_year_range(country_ts_data, year_range[0], year_range[1])
+        country_filtered = aggregation.filter_by_year_range(country_ts_data, YEAR, YEAR)
         cz_latest = aggregation.filter_by_entity(country_filtered, "Czech Republic")
         cz_latest_row = cz_latest[
             (cz_latest["year"] == latest_year) & (cz_latest["month"] == latest_month)
@@ -194,7 +224,7 @@ if variable == "LST":
             uhi_fig = visualization.plot_uhi_bar(
                 city_latest.rename(columns={value_col: "lst_mean"}),
                 country_lst_mean,
-                title=f"UHI — {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][latest_month-1]} {latest_year}",
+                title=f"UHI — {MONTH_NAMES[latest_month-1]} {latest_year}",
             )
             st.plotly_chart(uhi_fig, use_container_width=True)
             st.caption(f"Country reference LST: {country_lst_mean:.1f} °C")

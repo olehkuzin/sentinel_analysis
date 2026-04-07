@@ -11,10 +11,13 @@ import math
 import folium
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.path as mpath
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from branca.colormap import LinearColormap
+from shapely.geometry import shape, MultiPolygon
+from shapely.ops import unary_union
 
 from . import ndvi as ndvi_mod
 from . import lst as lst_mod
@@ -26,13 +29,69 @@ matplotlib.use("Agg")  # non-interactive backend
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _mask_raster_to_geojson(arr: np.ndarray, bbox: list[float], geojson: dict) -> np.ndarray:
+    """Set pixels outside the GeoJSON boundary to NaN so raster follows CZ shape."""
+    h, w = arr.shape
+    # Build a single merged polygon from all features
+    polys = []
+    for feat in geojson.get("features", []):
+        polys.append(shape(feat["geometry"]))
+    merged = unary_union(polys)
+    if merged.geom_type == "Polygon":
+        merged = MultiPolygon([merged])
+
+    # Create lon/lat grid for each pixel center
+    lon_min, lat_min, lon_max, lat_max = bbox
+    lons = np.linspace(lon_min, lon_max, w)
+    lats = np.linspace(lat_max, lat_min, h)  # top-down
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+    points = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
+
+    # Build matplotlib path from polygon exterior(s) for fast containment test
+    mask = np.zeros(len(points), dtype=bool)
+    for poly in merged.geoms:
+        verts = np.array(poly.exterior.coords)
+        path = mpath.Path(verts)
+        mask |= path.contains_points(points)
+
+    result = arr.copy()
+    result[~mask.reshape(h, w)] = np.nan
+    return result
+
+
+def _mask_raster_circle(arr: np.ndarray, bbox: list[float], center: tuple[float, float], radius_deg: float) -> np.ndarray:
+    """Mask raster to a circle around center (lon, lat) with given radius in degrees."""
+    h, w = arr.shape
+    lon_min, lat_min, lon_max, lat_max = bbox
+    lons = np.linspace(lon_min, lon_max, w)
+    lats = np.linspace(lat_max, lat_min, h)
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+    # Elliptical correction: lon degrees are shorter at higher latitudes
+    lat_center = center[1]
+    lon_scale = np.cos(np.radians(lat_center))
+    dist = np.sqrt(((lon_grid - center[0]) * lon_scale) ** 2 + (lat_grid - center[1]) ** 2)
+    result = arr.copy()
+    result[dist > radius_deg] = np.nan
+    return result
+
+
 def _array_to_png_b64(arr: np.ndarray, cmap_name: str, vmin: float, vmax: float) -> str:
-    """Convert a 2D float array to a base64-encoded PNG for folium ImageOverlay."""
+    """Convert a 2D float array to a base64-encoded PNG for folium ImageOverlay.
+    NaN pixels become fully transparent (alpha=0)."""
+    from PIL import Image
+
     cmap = plt.get_cmap(cmap_name)
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-    rgba = cmap(norm(np.ma.masked_invalid(arr)))
+    # Apply colormap → RGBA float array (H, W, 4)
+    rgba = cmap(norm(np.clip(np.nan_to_num(arr, nan=vmin), vmin, vmax)))
+    # Force NaN pixels to fully transparent
+    nan_mask = np.isnan(arr)
+    rgba[nan_mask, 3] = 0.0
+    # Convert to uint8 and save via PIL for guaranteed alpha support
+    rgba_uint8 = (rgba * 255).astype(np.uint8)
+    img = Image.fromarray(rgba_uint8, mode="RGBA")
     buf = io.BytesIO()
-    plt.imsave(buf, rgba, format="png")
+    img.save(buf, format="PNG")
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
 
@@ -68,7 +127,17 @@ def build_country_raster_map(
     """
     center_lat = (bbox[1] + bbox[3]) / 2
     center_lon = (bbox[0] + bbox[2]) / 2
-    fmap = _folium_base_map(center_lat, center_lon, zoom=7)
+    # Auto-fit zoom based on bbox span
+    lon_span = bbox[2] - bbox[0]
+    if lon_span > 5:
+        zoom = 7
+    elif lon_span > 2:
+        zoom = 8
+    elif lon_span > 1:
+        zoom = 9
+    else:
+        zoom = 10
+    fmap = _folium_base_map(center_lat, center_lon, zoom=zoom)
 
     bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]]
 
@@ -78,6 +147,7 @@ def build_country_raster_map(
             image=f"data:image/png;base64,{png_b64}",
             bounds=bounds,
             opacity=0.75,
+            interactive=False,
             name="NDVI",
         ).add_to(fmap)
         colorbar = LinearColormap(
@@ -94,15 +164,86 @@ def build_country_raster_map(
             image=f"data:image/png;base64,{png_b64}",
             bounds=bounds,
             opacity=0.75,
-            name="LST (°C)",
+            interactive=False,
+            name=lst_mod.LST_LABEL,
         ).add_to(fmap)
         colorbar = LinearColormap(
             colors=["#313695", "#74ADD1", "#FEE090", "#F46D43", "#A50026"],
             vmin=lst_mod.LST_VMIN,
             vmax=lst_mod.LST_VMAX,
-            caption="LST (°C)",
+            caption=lst_mod.LST_LABEL,
         )
         colorbar.add_to(fmap)
+
+    return fmap
+
+
+def build_city_raster_map(
+    ndvi_arr: np.ndarray | None,
+    lst_arr: np.ndarray | None,
+    bbox: list[float],
+    layer: str,
+    city_center: tuple[float, float],
+    radius_deg: float = 0.13,
+) -> folium.Map:
+    """Raster clipped to a circle around the city center."""
+    if ndvi_arr is not None:
+        ndvi_arr = _mask_raster_circle(ndvi_arr, bbox, city_center, radius_deg)
+    if lst_arr is not None:
+        lst_arr = _mask_raster_circle(lst_arr, bbox, city_center, radius_deg)
+    return build_country_raster_map(ndvi_arr, lst_arr, bbox, layer)
+
+
+def build_raster_map_with_borders(
+    ndvi_arr: np.ndarray | None,
+    lst_arr: np.ndarray | None,
+    bbox: list[float],
+    layer: str,
+    geojson: dict | None = None,
+    selected_region: str | None = None,
+    mask_region: str | None = None,
+) -> folium.Map:
+    """Raster overlay clipped to CZ/region borders with NUTS-3 lines on top.
+
+    Args:
+        mask_region: If set, clip raster to only this region's polygon.
+                     If None, clip to the full country outline.
+    """
+    if geojson and geojson.get("features"):
+        # Build the mask geojson: single region or whole country
+        if mask_region:
+            mask_gj = {
+                "type": "FeatureCollection",
+                "features": [
+                    f for f in geojson["features"]
+                    if f["properties"].get("name") == mask_region
+                ],
+            }
+        else:
+            mask_gj = geojson
+
+        if mask_gj.get("features"):
+            if ndvi_arr is not None:
+                ndvi_arr = _mask_raster_to_geojson(ndvi_arr, bbox, mask_gj)
+            if lst_arr is not None:
+                lst_arr = _mask_raster_to_geojson(lst_arr, bbox, mask_gj)
+
+    fmap = build_country_raster_map(ndvi_arr, lst_arr, bbox, layer)
+
+    if geojson and geojson.get("features"):
+        def _style(feature):
+            is_sel = feature["properties"].get("name") == selected_region
+            return {
+                "fillOpacity": 0,
+                "weight": 3 if is_sel else 1.5,
+                "color": "#000000" if is_sel else "#222222",
+            }
+        # Borders only — no click/hover popups
+        folium.GeoJson(
+            geojson,
+            style_function=_style,
+            name="Region borders",
+        ).add_to(fmap)
 
     folium.LayerControl().add_to(fmap)
     return fmap

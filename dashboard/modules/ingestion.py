@@ -1,10 +1,14 @@
 """
-On-demand raster fetching via SentinelHubRequest.
-Used only for map overlays (one raster per selected month/year/geography).
-Results are cached by Streamlit via @st.cache_data(persist="disk").
+On-demand raster fetching via SentinelHubRequest with local disk cache.
+
+First call fetches from Sentinel Hub and saves to data/rasters/.
+Subsequent calls load from disk instantly.
+Run scripts/fetch_all_rasters.py to pre-populate the cache.
 """
 import calendar
+import hashlib
 import os
+from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
@@ -19,11 +23,12 @@ from sentinelhub import (
 )
 
 # Reuse the CDSE collections already registered by statistics_api.py.
-# Calling define_from again with the same definition would raise ValueError.
 from dashboard.modules.statistics_api import CDSE_S2_L2A as _S2_L2A
 from dashboard.modules.statistics_api import CDSE_S3_SLSTR as _S3_SLSTR
 
 load_dotenv()
+
+RASTER_CACHE_DIR = Path(__file__).resolve().parents[1] / "data" / "rasters"
 
 # ---------------------------------------------------------------------------
 # Evalscripts
@@ -48,12 +53,15 @@ EVALSCRIPT_LST = """
 //VERSION=3
 function setup() {
   return {
-    input: ["S7"],
+    input: ["S8", "S9", "dataMask"],
     output: { bands: 1, sampleType: "FLOAT32" }
   };
 }
-function evaluatePixel(sample) {
-  return [sample.S7 - 273.15];
+function evaluatePixel(s) {
+  if (s.dataMask === 0 || s.S8 === 0 || s.S9 === 0) return [NaN];
+  // Split-window correction: improves raw brightness temp
+  var lst_k = s.S8 + 1.5 * (s.S8 - s.S9) + 0.5;
+  return [lst_k - 273.15];
 }
 """
 
@@ -76,19 +84,36 @@ def _month_time_interval(year: int, month: int) -> tuple[str, str]:
     return (f"{year}-{month:02d}-01", f"{year}-{month:02d}-{last_day:02d}")
 
 
+def _cache_key(variable: str, bbox: list[float], size: tuple[int, int], year: int, month: int) -> str:
+    """Deterministic filename for a raster request."""
+    bbox_str = "_".join(f"{v:.4f}" for v in bbox)
+    return f"{variable}_{bbox_str}_{size[0]}x{size[1]}_{year}_{month:02d}.npy"
+
+
+def _load_cached(key: str) -> np.ndarray | None:
+    path = RASTER_CACHE_DIR / key
+    if path.exists():
+        return np.load(path)
+    return None
+
+
+def _save_cached(key: str, arr: np.ndarray) -> None:
+    RASTER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    np.save(RASTER_CACHE_DIR / key, arr)
+
+
 def fetch_ndvi_raster(
     bbox: list[float],
     size: tuple[int, int],
     year: int,
     month: int,
 ) -> np.ndarray:
-    """
-    Fetch an NDVI raster for the given bbox, size (W, H), year, and month
-    using Sentinel-2 L2A with least-cloud-cover mosaicking.
+    """Fetch NDVI raster, loading from disk cache if available."""
+    key = _cache_key("ndvi", bbox, size, year, month)
+    cached = _load_cached(key)
+    if cached is not None:
+        return cached
 
-    Returns a 2D float32 array of shape (H, W) with values in [-1, 1].
-    NaN = cloud-masked or no data.
-    """
     config = _build_config()
     time_interval = _month_time_interval(year, month)
     sh_bbox = BBox(bbox=bbox, crs=CRS.WGS84)
@@ -107,9 +132,10 @@ def fetch_ndvi_raster(
         size=size,
         config=config,
     )
-    data = request.get_data()[0]          # shape: (H, W, 1) or (H, W)
+    data = request.get_data()[0]
     arr = np.squeeze(data).astype(np.float32)
-    arr[arr == 0] = np.nan                # sentinel value from some APIs
+    arr[arr == 0] = np.nan
+    _save_cached(key, arr)
     return arr
 
 
@@ -119,13 +145,12 @@ def fetch_lst_raster(
     year: int,
     month: int,
 ) -> np.ndarray:
-    """
-    Fetch a Land Surface Temperature raster for the given bbox, size (W, H),
-    year, and month using Sentinel-3 SLSTR (S7 band, Kelvin → Celsius).
+    """Fetch LST raster, loading from disk cache if available."""
+    key = _cache_key("lst", bbox, size, year, month)
+    cached = _load_cached(key)
+    if cached is not None:
+        return cached
 
-    Returns a 2D float32 array of shape (H, W) in degrees Celsius.
-    NaN = no data.
-    """
     config = _build_config()
     time_interval = _month_time_interval(year, month)
     sh_bbox = BBox(bbox=bbox, crs=CRS.WGS84)
@@ -146,4 +171,5 @@ def fetch_lst_raster(
     data = request.get_data()[0]
     arr = np.squeeze(data).astype(np.float32)
     arr[arr == 0] = np.nan
+    _save_cached(key, arr)
     return arr

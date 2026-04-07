@@ -156,6 +156,23 @@ def get_region_bbox(region_name: str) -> list[float]:
     return REGIONS[region_name]["bbox"]
 
 
+def get_region_bbox_from_geojson(region_name: str, geojson: dict, pad: float = 0.02) -> list[float]:
+    """Compute bbox from actual GeoJSON geometry (more accurate than manual bbox).
+    Adds `pad` degrees of padding on each side."""
+    from shapely.geometry import shape
+    for feat in geojson.get("features", []):
+        if feat["properties"].get("name") == region_name:
+            bounds = shape(feat["geometry"]).bounds  # (minx, miny, maxx, maxy)
+            return [
+                bounds[0] - pad,
+                bounds[1] - pad,
+                bounds[2] + pad,
+                bounds[3] + pad,
+            ]
+    # Fallback to manual bbox
+    return REGIONS[region_name]["bbox"]
+
+
 def get_city_bbox(city_name: str, buffer_deg: float = 0.15) -> list[float]:
     """Return a square bbox around the city centroid with buffer_deg padding."""
     city = CITIES[city_name]
@@ -221,6 +238,70 @@ def download_cz_nuts3_boundaries(save_path: Path | str | None = None) -> dict:
         json.dump(geojson, f)
     print(f"Saved {len(cz_features)} region boundaries to {save_path}")
     return geojson
+
+
+_CITIES_GEOJSON_PATH = Path(__file__).resolve().parents[1] / "data" / "cz_cities.geojson"
+
+
+def download_cz_city_boundaries(save_path: Path | str | None = None) -> dict:
+    """
+    Download city boundaries from OpenStreetMap Nominatim for each city in CITIES.
+    Saves to dashboard/data/cz_cities.geojson.
+    """
+    import time
+    import urllib.request
+
+    save_path = Path(save_path) if save_path else _CITIES_GEOJSON_PATH
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    features = []
+    for name in CITIES:
+        print(f"  Fetching boundary for {name}...", end=" ", flush=True)
+        query = urllib.parse.quote(f"{name}, Czech Republic")
+        url = (
+            f"https://nominatim.openstreetmap.org/search?"
+            f"q={query}&format=json&polygon_geojson=1&limit=1"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "sentinel-analysis-dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            results = json.loads(resp.read().decode("utf-8"))
+
+        if results and "geojson" in results[0]:
+            geom = results[0]["geojson"]
+            features.append({
+                "type": "Feature",
+                "properties": {"name": name},
+                "geometry": geom,
+            })
+            print("OK")
+        else:
+            print("NOT FOUND")
+
+        time.sleep(1.1)  # Nominatim rate limit: 1 req/sec
+
+    geojson = {"type": "FeatureCollection", "features": features}
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(geojson, f)
+    print(f"Saved {len(features)} city boundaries to {save_path}")
+    return geojson
+
+
+def load_cities_geojson() -> dict | None:
+    """Load city boundaries GeoJSON, or None if not downloaded yet."""
+    if _CITIES_GEOJSON_PATH.exists():
+        return load_geojson(str(_CITIES_GEOJSON_PATH))
+    return None
+
+
+def get_city_bbox_from_geojson(city_name: str, geojson: dict, pad: float = 0.02) -> list[float]:
+    """Compute bbox from actual city GeoJSON geometry."""
+    from shapely.geometry import shape
+    for feat in geojson.get("features", []):
+        if feat["properties"].get("name") == city_name:
+            bounds = shape(feat["geometry"]).bounds
+            return [bounds[0] - pad, bounds[1] - pad, bounds[2] + pad, bounds[3] + pad]
+    # Fallback
+    return get_city_bbox(city_name)
 
 
 def load_regions_geojson() -> dict:

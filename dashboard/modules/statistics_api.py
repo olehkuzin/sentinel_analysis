@@ -107,17 +107,19 @@ EVALSCRIPT_LST = """
 //VERSION=3
 function setup() {
   return {
-    input: [{bands: ["S7"]}],
+    input: [{bands: ["S8", "S9"]}],
     output: [
       {id: "default", bands: 1, sampleType: "FLOAT32"},
       {id: "dataMask", bands: 1}
     ]
   };
 }
-function evaluatePixel(samples) {
-  if (samples.S7 === 0) return {default: [NaN], dataMask: [0]};
+function evaluatePixel(s) {
+  if (s.S8 === 0 || s.S9 === 0) return {default: [NaN], dataMask: [0]};
+  // Split-window correction
+  var lst_k = s.S8 + 1.5 * (s.S8 - s.S9) + 0.5;
   return {
-    default: [samples.S7 - 273.15],
+    default: [lst_k - 273.15],
     dataMask: [1]
   };
 }
