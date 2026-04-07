@@ -34,13 +34,26 @@ from sentinelhub import (
 # ---------------------------------------------------------------------------
 CDSE_URL = "https://sh.dataspace.copernicus.eu"
 
-CDSE_S2_L2A = DataCollection.SENTINEL2_L2A.define_from(
-    "CDSE_SENTINEL2_L2A",
-    service_url=CDSE_URL,
+def _get_or_define(base, name, **kwargs):
+    """Register a DataCollection, or return the existing one if already defined."""
+    try:
+        return base.define_from(name, **kwargs)
+    except ValueError:
+        # Already registered (Streamlit re-import) — find by service_url + api_id
+        surl = kwargs.get("service_url")
+        aid = kwargs.get("api_id", base.api_id)
+        return next(
+            dc for dc in DataCollection
+            if dc.service_url == surl and dc.api_id == aid
+        )
+
+CDSE_S2_L2A = _get_or_define(
+    DataCollection.SENTINEL2_L2A, "CDSE_SENTINEL2_L2A",
+    service_url=CDSE_URL, api_id="sentinel-2-l2a",
 )
-CDSE_S3_SLSTR = DataCollection.SENTINEL3_SLSTR.define_from(
-    "CDSE_SENTINEL3_SLSTR",
-    service_url=CDSE_URL,
+CDSE_S3_SLSTR = _get_or_define(
+    DataCollection.SENTINEL3_SLSTR, "CDSE_SENTINEL3_SLSTR",
+    service_url=CDSE_URL, api_id="sentinel-3-slstr",
 )
 
 import math

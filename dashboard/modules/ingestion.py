@@ -12,18 +12,16 @@ from dotenv import load_dotenv
 from sentinelhub import (
     BBox,
     CRS,
-    DataCollection,
     MimeType,
     SentinelHubRequest,
     SHConfig,
     bbox_to_dimensions,
 )
 
-# SentinelHubRequest routes via config.sh_base_url, so the default collections
-# work fine with the CDSE config — no define_from needed here (unlike the
-# Statistical API which routes via the collection's own service_url).
-_S2_L2A = DataCollection.SENTINEL2_L2A
-_S3_SLSTR = DataCollection.SENTINEL3_SLSTR
+# Reuse the CDSE collections already registered by statistics_api.py.
+# Calling define_from again with the same definition would raise ValueError.
+from dashboard.modules.statistics_api import CDSE_S2_L2A as _S2_L2A
+from dashboard.modules.statistics_api import CDSE_S3_SLSTR as _S3_SLSTR
 
 load_dotenv()
 
@@ -35,19 +33,14 @@ EVALSCRIPT_NDVI = """
 //VERSION=3
 function setup() {
   return {
-    input: [
-      {bands: ["B04", "B08"], units: "REFLECTANCE"},
-      {bands: ["SCL"], units: "DN"}
-    ],
-    output: [{bands: 1, sampleType: "FLOAT32"}]
+    input: ["B04", "B08", "dataMask"],
+    output: { bands: 1, sampleType: "FLOAT32" }
   };
 }
-function evaluatePixel(samples) {
-  // SCL: 3=cloud shadow, 8=cloud medium, 9=cloud high, 10=cirrus
-  if ([3, 8, 9, 10].includes(samples.SCL)) return [NaN];
-  let denom = samples.B08 + samples.B04;
-  if (denom === 0) return [NaN];
-  return [(samples.B08 - samples.B04) / denom];
+function evaluatePixel(sample) {
+  if (sample.dataMask === 0) return [NaN];
+  let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
+  return [ndvi];
 }
 """
 
@@ -55,13 +48,12 @@ EVALSCRIPT_LST = """
 //VERSION=3
 function setup() {
   return {
-    input: [{bands: ["S7"]}],
-    output: [{bands: 1, sampleType: "FLOAT32"}]
+    input: ["S7"],
+    output: { bands: 1, sampleType: "FLOAT32" }
   };
 }
-function evaluatePixel(samples) {
-  if (samples.S7 === 0) return [NaN];
-  return [samples.S7 - 273.15];
+function evaluatePixel(sample) {
+  return [sample.S7 - 273.15];
 }
 """
 
