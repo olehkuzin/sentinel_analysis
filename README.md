@@ -2,6 +2,8 @@
 
 Satellite-based analysis of vegetation health (NDVI) and land surface temperature across the Czech Republic using Copernicus Sentinel data. Built with Streamlit.
 
+Co-authored with Roman Vozivoda.
+
 ## Features
 
 - **Country Overview** — NDVI and temperature anomaly raster maps clipped to Czech borders with region boundaries overlay
@@ -103,6 +105,10 @@ scripts/
 
 notebooks/
   data_extraction.ipynb     # Original exploration notebook
+  lekce_programovani_pro_DPZ-2.ipynb  # Google Earth Engine notebook (Colab)
+
+docs/
+  ESA BIC Assignment.pdf    # ESA BIC assignment (PDF)
 ```
 
 ## Key Findings
