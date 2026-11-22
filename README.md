@@ -4,6 +4,8 @@ Satellite-based analysis of vegetation health (NDVI) and land surface temperatur
 
 Co-authored with Roman Vozivoda.
 
+![Country overview page: NDVI map of the Czech Republic for July 2025 with summary statistics](docs/images/dashboard-overview.png)
+
 ## Features
 
 - **Country Overview** — NDVI and temperature anomaly raster maps clipped to Czech borders with region boundaries overlay
